@@ -5,11 +5,10 @@ console.log("Logs from your program will appear here!");
 
 // Uncomment this to pass the first stage
 const server = net.createServer((socket) => {
-  socket.get("data", (req,res) => {
-    res.send('HTTP/1.1 200 OK\r\n\r\n')
-    socket.end();
+  socket.on("data", () => {
+    const response = "HTTP/1.1 200 OK\r\n\r\n";
 
-    server.close();
+    socket.write(response);
   });
 });
 
