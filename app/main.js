@@ -1,39 +1,56 @@
 const net = require("net");
+const nodePath = require("node:path");
+const fs = require("node:fs");
 
+const { argv } = require("node:process");
+const HTTPVersion = "HTTP/1.1";
+const CRLF = "\r\n";
 const server = net.createServer((socket) => {
   socket.on("data", (data) => {
-    const startLine = data.toString().split("\r\n")[0];
-    const [, path] = startLine.split(" ");
+    const request = data.toString().split(CRLF);
+    const [, path] = request[0].split(" ");
     if (path === "/") {
-      socket.end("HTTP/1.1 200 OK\r\n\r\n");
-      return;
-    }
-    if (path.startsWith("/echo/")) {
+      socket.write(`${HTTPVersion} 200 OK${CRLF + CRLF}`);
+    } else if (path.startsWith("/echo/")) {
       const string = path.split("/echo/")[1];
-      socket.end(
-        `HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ${Buffer.byteLength(
+      socket.write(
+        `${HTTPVersion} 200 OK${CRLF}Content-Type: text/plain${CRLF}Content-Length: ${Buffer.byteLength(
           string,
-          ["utf-8"]
-        )}\r\n\r\n${string}\r\n\r\n`
+          "utf-8"
+        )}${CRLF + CRLF}${string}`
       );
-      return;
-    }
-    if (path.startsWith("/user-agent")) {
-      const lines = data.toString().split("\r\n");
-      const userAgentIndex = lines.findIndex((line) =>
-        line.startsWith("User-Agent:")
-      );
-      const userAgent = lines[userAgentIndex].split(": ")[1];
-      socket.end(
-        `HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ${Buffer.byteLength(
+    } else if (path === "/user-agent") {
+      const [, userAgent] = request[2].split(" ");
+      socket.write(
+        `${HTTPVersion} 200 OK${CRLF}Content-Type: text/plain${CRLF}Content-Length: ${Buffer.byteLength(
           userAgent,
-          ["utf-8"]
-        )}\r\n\r\n${userAgent}\r\n\r\n`
+          "utf-8"
+        )}${CRLF + CRLF}${userAgent}`
       );
-      return;
+    } else if (path.startsWith("/files/")) {
+      const fileName = path.split("/files/")[1];
+      const directoryIndex = argv.findIndex((value) => value === "--directory");
+      const directory = argv[directoryIndex + 1];
+      const filePath = nodePath.join(directory, fileName);
+      const fileExists = fs.existsSync(filePath);
+      if (fileExists) {
+        const body = fs.readFileSync(filePath, { encoding: "utf-8" });
+        socket.write(
+          `${HTTPVersion} 200 OK${CRLF}Content-Type: application/octet-stream${CRLF}Content-Length: ${Buffer.byteLength(
+            body,
+            "utf-8"
+          )}${CRLF + CRLF}${body}`
+        );
+      } else {
+        socket.write(`${HTTPVersion} 404 Not Found${CRLF + CRLF}`);
+      }
+    } else {
+      socket.write(`${HTTPVersion} 404 Not Found${CRLF + CRLF}`);
     }
-
-    socket.end("HTTP/1.1 404 Not Found\r\n\r\n");
+    socket.end();
+  });
+  socket.on("close", () => {
+    socket.end();
   });
 });
 server.listen(4221, "localhost");
