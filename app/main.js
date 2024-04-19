@@ -1,56 +1,61 @@
 const net = require("net");
-const nodePath = require("node:path");
-const fs = require("node:fs");
+const fs = require("fs");
+const path = require("path");
 
-const { argv } = require("node:process");
-const HTTPVersion = "HTTP/1.1";
-const CRLF = "\r\n";
+const filePath = process.argv[3];
+
 const server = net.createServer((socket) => {
-  socket.on("data", (data) => {
-    const request = data.toString().split(CRLF);
-    const [, path] = request[0].split(" ");
-    if (path === "/") {
-      socket.write(`${HTTPVersion} 200 OK${CRLF + CRLF}`);
-    } else if (path.startsWith("/echo/")) {
-      const string = path.split("/echo/")[1];
+  socket.on("data", async (data) => {
+    let request = data.toString().split("\r\n");
+    let pathRequest = request[0].split(" ");
+    if (pathRequest[1] === "/") {
+      socket.write("HTTP/1.1 200 OK\r\n\r\n");
+    } else if (pathRequest[1].includes("/echo/")) {
+      let content = pathRequest[1].replace("/echo/", "");
       socket.write(
-        `${HTTPVersion} 200 OK${CRLF}Content-Type: text/plain${CRLF}Content-Length: ${Buffer.byteLength(
-          string,
-          "utf-8"
-        )}${CRLF + CRLF}${string}`
+        `HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ${content.length}\r\n\r\n${content}`
       );
-    } else if (path === "/user-agent") {
-      const [, userAgent] = request[2].split(" ");
-      socket.write(
-        `${HTTPVersion} 200 OK${CRLF}Content-Type: text/plain${CRLF}Content-Length: ${Buffer.byteLength(
-          userAgent,
-          "utf-8"
-        )}${CRLF + CRLF}${userAgent}`
-      );
-    } else if (path.startsWith("/files/")) {
-      const fileName = path.split("/files/")[1];
-      const directoryIndex = argv.findIndex((value) => value === "--directory");
-      const directory = argv[directoryIndex + 1];
-      const filePath = nodePath.join(directory, fileName);
-      const fileExists = fs.existsSync(filePath);
-      if (fileExists) {
-        const body = fs.readFileSync(filePath, { encoding: "utf-8" });
-        socket.write(
-          `${HTTPVersion} 200 OK${CRLF}Content-Type: application/octet-stream${CRLF}Content-Length: ${Buffer.byteLength(
-            body,
-            "utf-8"
-          )}${CRLF + CRLF}${body}`
-        );
+    } else if (pathRequest[1].includes("/files/")) {
+      if (request[0].includes("POST")) {
+        const fileName = pathRequest[1].replace("/files/", "");
+        const file = path.join(filePath, fileName);
+        const content = request[request.length - 1];
+        await fs.promises.writeFile(file, content);
+        socket.write("HTTP/1.1 201 Created\r\n\r\n");
       } else {
-        socket.write(`${HTTPVersion} 404 Not Found${CRLF + CRLF}`);
+        const fileName = pathRequest[1].replace("/files/", "");
+        const file = path.join(filePath, fileName);
+        if (fs.existsSync(file)) {
+          const content = await fs.promises.readFile(file);
+          socket.write(
+            `HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: ${content.length}\r\n\r\n${content}`
+          );
+        } else {
+          socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+        }
       }
+
+      socket.end();
+    } else if (pathRequest[1].includes("/user-agent")) {
+      let userAgent = "";
+      for (let i = 1; i < request.length; i++) {
+        if (request[i].startsWith("User-Agent:")) {
+          userAgent = request[i].substring(12);
+          break;
+        }
+      }
+      socket.write(
+        `HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ${userAgent.length}\r\n\r\n${userAgent}`
+      );
     } else {
-      socket.write(`${HTTPVersion} 404 Not Found${CRLF + CRLF}`);
+      socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+      socket.end();
     }
-    socket.end();
   });
   socket.on("close", () => {
     socket.end();
+    server.close();
   });
 });
+
 server.listen(4221, "localhost");
